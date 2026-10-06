@@ -30,3 +30,11 @@ command -v nvim >/dev/null && alias vim='nvim'
 eval "$(fzf --zsh)"
 eval "$(zoxide init --cmd cd zsh)"
 eval "$(starship init zsh)"
+
+# --- Transient prompt: collapse finished prompts to just ❯ ---
+_full_prompt=$PROMPT
+_collapse_prompt() { PROMPT='%F{green}❯%f '; zle .reset-prompt }
+_restore_prompt() { PROMPT=$_full_prompt }
+autoload -Uz add-zle-hook-widget
+add-zle-hook-widget line-finish _collapse_prompt
+precmd_functions+=(_restore_prompt)
