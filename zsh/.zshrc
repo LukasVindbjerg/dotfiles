@@ -15,6 +15,9 @@ zinit light zsh-users/zsh-syntax-highlighting
 HISTFILE=~/.zsh_history HISTSIZE=10000 SAVEHIST=10000
 setopt sharehistory hist_ignore_all_dups hist_ignore_space
 
+# --- PATH ---
+path=("$HOME/dotfiles/bin" $path)
+
 # --- Keys & completion ---
 bindkey -e
 bindkey '^p' history-search-backward
