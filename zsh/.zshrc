@@ -29,6 +29,9 @@ zstyle ':completion:*' menu no
 alias ls='ls --color' c='clear'
 command -v nvim >/dev/null && alias vim='nvim'
 
+# --- Sublime (Windows install; converts WSL paths for it) ---
+subl() { local a=(); for f in "$@"; do a+=("$(wslpath -w "$f" 2>/dev/null || echo "$f")"); done; "/mnt/c/Program Files/Sublime Text/subl.exe" "${a[@]}"; }
+
 # --- Tools ---
 eval "$(fzf --zsh)"
 eval "$(zoxide init --cmd cd zsh)"
