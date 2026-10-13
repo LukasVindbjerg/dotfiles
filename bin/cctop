@@ -3,7 +3,9 @@
 
 Proof of concept. Session list and status come from `claude agents --json`;
 CPU and memory are summed over each session's process tree from /proc;
-title and latest prompt come from the session transcript.
+the name you gave a session comes from its transcript, and its purpose is a
+short Haiku summary of your prompts there, cached in ~/.cache/cctop and
+redone when the session has moved on by a few prompts.
 
 Keys: up/down select, Enter jump to the session's tmux pane, q quit.
 `cctop --once` prints one plain table and exits.
@@ -14,6 +16,7 @@ import locale
 import os
 import subprocess
 import sys
+import threading
 import time
 
 REFRESH_SECONDS = 2.0
@@ -22,6 +25,14 @@ PAGE_KB = os.sysconf("SC_PAGE_SIZE") // 1024
 HOME = os.path.expanduser("~")
 PROJECTS = os.path.join(HOME, ".claude", "projects")
 TAIL_BYTES = 1_000_000
+CACHE = os.path.join(HOME, ".cache", "cctop", "purposes.json")
+RESUMMARIZE_AFTER = 3  # new prompts before the purpose is redone
+SUMMARY_TIMEOUT = 90
+SUMMARY_PROMPT = (
+    "Below are the prompts a developer typed into one Claude Code session, oldest first. "
+    "Say what the session is about in at most 8 words: the goal, not the last request. "
+    "Reply with only those words, no quotes and no full stop.\n\n"
+)
 
 # status from `claude agents --json` -> (icon, label, sort order)
 STATES = {
@@ -104,18 +115,100 @@ def where(pid, procs, panes):
     return None, "terminal"
 
 
-def transcript_info(session):
-    """(title, latest prompt) from the tail of the session transcript."""
+def transcript_path(session):
     folder = session["cwd"].replace("/", "-").replace(".", "-")
-    path = os.path.join(PROJECTS, folder, session["sessionId"] + ".jsonl")
+    return os.path.join(PROJECTS, folder, session["sessionId"] + ".jsonl")
+
+
+def all_prompts(session):
+    """Every distinct prompt the user typed in the session, oldest first."""
+    prompts = []
     try:
-        with open(path, "rb") as f:
+        with open(transcript_path(session), encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if '"last-prompt"' not in line:
+                    continue
+                try:
+                    p = " ".join((json.loads(line).get("lastPrompt") or "").split())
+                except ValueError:
+                    continue
+                if p and (not prompts or prompts[-1] != p):
+                    prompts.append(p)
+    except OSError:
+        pass
+    return prompts
+
+
+def summarize(title, prompts):
+    picked = prompts[:3] + prompts[3:][-5:]
+    text = (f"Session name: {title}\n" if title else "") + "\n".join(f"- {p[:400]}" for p in picked)
+    out = subprocess.run(
+        ["claude", "-p", "--no-session-persistence", "--strict-mcp-config", "--model", "haiku", "--tools", ""],
+        input=SUMMARY_PROMPT + text, capture_output=True, text=True, timeout=SUMMARY_TIMEOUT, cwd="/tmp")
+    if out.returncode != 0:
+        raise RuntimeError(out.stderr.strip() or out.stdout.strip())
+    return " ".join(out.stdout.split())[:80]
+
+
+class Purposes:
+    """Per-session purpose summaries, made one at a time in the background."""
+
+    def __init__(self):
+        try:
+            with open(CACHE) as f:
+                self.cache = json.load(f)
+        except (OSError, ValueError):
+            self.cache = {}
+        self.lock = threading.Lock()
+        self.busy = False
+
+    def get(self, session, title, wait=False):
+        sid = session["sessionId"]
+        entry = self.cache.get(sid)
+        stale = entry is None or session["_prompt_count"] - entry["prompts"] >= RESUMMARIZE_AFTER
+        if stale:
+            if wait:
+                self._make(session, title)
+            else:
+                with self.lock:
+                    start = not self.busy
+                    self.busy = self.busy or start
+                if start:
+                    threading.Thread(target=self._make, args=(session, title), daemon=True).start()
+        entry = self.cache.get(sid)
+        return entry["purpose"] if entry else "… summarising"
+
+    def _make(self, session, title):
+        try:
+            prompts = all_prompts(session)
+            if not prompts:
+                purpose = "(no prompts yet)"
+            else:
+                try:
+                    purpose = summarize(title, prompts)
+                except (RuntimeError, subprocess.TimeoutExpired) as e:
+                    purpose = f"(summary failed: {str(e)[:40]})"
+            self.cache[session["sessionId"]] = {"purpose": purpose, "prompts": len(prompts)}
+            os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+            with open(CACHE + ".tmp", "w") as f:
+                json.dump(self.cache, f)
+            os.replace(CACHE + ".tmp", CACHE)
+        finally:
+            with self.lock:
+                self.busy = False
+
+
+def transcript_info(session):
+    """(title, latest prompt, prompt count) from the tail of the session transcript."""
+    try:
+        with open(transcript_path(session), "rb") as f:
             f.seek(0, os.SEEK_END)
             f.seek(max(0, f.tell() - TAIL_BYTES))
             lines = f.read().decode(errors="replace").splitlines()
     except OSError:
         return "", ""
     title = prompt = ""
+    # title: the name you gave the session (/rename); prompt: your latest prompt
     for line in reversed(lines):
         if '"custom-title"' not in line and '"last-prompt"' not in line:
             continue
@@ -146,9 +239,24 @@ def mem_total_kb():
 
 
 class Sampler:
-    def __init__(self):
+    def __init__(self, wait_for_purposes=False):
         self.prev = {}  # session pid -> (jiffies, time)
         self.mem_total = mem_total_kb()
+        self.purposes = Purposes()
+        self.wait = wait_for_purposes
+        self.counts = {}  # transcript path -> (size, prompt count)
+
+    def prompt_count(self, session):
+        path = transcript_path(session)
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            return 0
+        known = self.counts.get(path)
+        if not known or known[0] != size:
+            known = (size, len(all_prompts(session)))
+            self.counts[path] = known
+        return known[1]
 
     def rows(self):
         sessions = list_sessions()
@@ -169,31 +277,34 @@ class Sampler:
             self.prev[pid] = (jiffies, now)
             icon, label, order = state_of(s.get("status"))
             target, place = where(pid, procs, panes)
-            title, prompt = transcript_info(s)
+            title, _prompt = transcript_info(s)
+            s["_prompt_count"] = self.prompt_count(s)
+            purpose = self.purposes.get(s, title, wait=self.wait)
             repo = os.path.relpath(s["cwd"], HOME) if s["cwd"].startswith(HOME) else s["cwd"]
-            rows.append(dict(order=order, icon=icon, label=label, name=s.get("name", "?"), repo=repo,
-                             title=title, cpu=cpu, mem_mb=rss / 1024, age=age(s["startedAt"]),
-                             place=place, target=target, prompt=prompt))
-        rows.sort(key=lambda r: (r["order"], r["repo"], r["name"]))
+            rows.append(dict(order=order, icon=icon, label=label, name=title or "-", id=s.get("name", "?"),
+                             repo=repo, cpu=cpu, mem_mb=rss / 1024, age=age(s["startedAt"]),
+                             place=place, target=target, purpose=purpose))
+        rows.sort(key=lambda r: (r["order"], r["repo"], r["id"]))
         return rows
 
 
-COLS = [("", 3), ("STATE", 10), ("NAME", 18), ("REPO", 20), ("CPU%", 6), ("MEM", 7), ("AGE", 7), ("WHERE", 22)]
+COLS = [("", 3), ("STATE", 10), ("NAME", 14), ("ID", 16), ("REPO", 18), ("CPU%", 6), ("MEM", 7),
+        ("AGE", 7), ("WHERE", 20)]
 
 
 def fmt(row, width):
     cpu = "  …" if row["cpu"] is None else f"{row['cpu']:5.1f}"
-    cells = [row["icon"], row["label"], row["name"], row["repo"], cpu, f"{row['mem_mb']:5.0f}M", row["age"], row["place"]]
+    cells = [row["icon"], row["label"], row["name"], row["id"], row["repo"], cpu, f"{row['mem_mb']:5.0f}M",
+             row["age"], row["place"]]
     out = row["icon"] + " "  # emoji is two columns wide
     for (_, w), cell in list(zip(COLS, cells))[1:]:
         out += str(cell)[:w - 1].ljust(w)
-    desc = row["title"] + (": " if row["title"] and row["prompt"] else "") + row["prompt"]
     used = 3 + sum(w for _, w in COLS[1:])
-    return out + desc[: max(0, width - used - 1)]
+    return out + row["purpose"][: max(0, width - used - 1)]
 
 
 def header(width):
-    return "".join(h.ljust(w) for h, w in COLS) + "TITLE / LATEST PROMPT"
+    return "".join(h.ljust(w) for h, w in COLS) + "PURPOSE"
 
 
 def summary(rows, mem_total):
@@ -208,7 +319,7 @@ def summary(rows, mem_total):
 
 
 def once():
-    s = Sampler()
+    s = Sampler(wait_for_purposes=True)
     s.rows()
     time.sleep(1)
     rows = s.rows()
