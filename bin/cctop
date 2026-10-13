@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""cctop - an htop-style overview of running Claude Code sessions.
+
+Proof of concept. Session list and status come from `claude agents --json`;
+CPU and memory are summed over each session's process tree from /proc;
+title and latest prompt come from the session transcript.
+
+Keys: up/down select, Enter jump to the session's tmux pane, q quit.
+`cctop --once` prints one plain table and exits.
+"""
+import curses
+import json
+import locale
+import os
+import subprocess
+import sys
+import time
+
+REFRESH_SECONDS = 2.0
+CLK_TCK = os.sysconf("SC_CLK_TCK")
+PAGE_KB = os.sysconf("SC_PAGE_SIZE") // 1024
+HOME = os.path.expanduser("~")
+PROJECTS = os.path.join(HOME, ".claude", "projects")
+TAIL_BYTES = 1_000_000
+
+# status from `claude agents --json` -> (icon, label, sort order)
+STATES = {
+    "needs_input": ("🔴", "needs you", 0),
+    "busy": ("🟡", "working", 1),
+    "idle": ("🟢", "idle", 2),
+}
+
+
+def state_of(raw):
+    raw = (raw or "").lower()
+    if raw in STATES:
+        return STATES[raw]
+    if any(w in raw for w in ("input", "wait", "block", "permission")):
+        return STATES["needs_input"]
+    return ("⚪", raw or "unknown", 3)
+
+
+def list_sessions():
+    out = subprocess.run(["claude", "agents", "--json"], capture_output=True, text=True, timeout=10)
+    if out.returncode != 0:
+        raise SystemExit(f"cctop: `claude agents --json` failed: {out.stderr.strip()}")
+    return json.loads(out.stdout)
+
+
+def read_procs():
+    """pid -> (ppid, cpu_jiffies, rss_kb, cmdline)."""
+    procs = {}
+    for name in os.listdir("/proc"):
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/stat") as f:
+                stat = f.read()
+            # comm can contain spaces; fields after the closing paren are fixed
+            fields = stat[stat.rindex(")") + 2:].split()
+            ppid, utime, stime, rss = int(fields[1]), int(fields[11]), int(fields[12]), int(fields[21])
+            with open(f"/proc/{name}/cmdline", "rb") as f:
+                cmd = f.read().replace(b"\0", b" ").decode(errors="replace")
+        except (OSError, ValueError, IndexError):
+            continue
+        procs[int(name)] = (ppid, utime + stime, rss * PAGE_KB, cmd)
+    return procs
+
+
+def tree(pid, children):
+    stack, seen = [pid], []
+    while stack:
+        p = stack.pop()
+        seen.append(p)
+        stack.extend(children.get(p, ()))
+    return seen
+
+
+def tmux_panes():
+    """pane pid -> (target, window name)."""
+    try:
+        out = subprocess.run(
+            ["tmux", "list-panes", "-a", "-F", "#{pane_pid}\t#{session_name}:#{window_index}.#{pane_index}\t#{window_name}"],
+            capture_output=True, text=True, timeout=5)
+    except FileNotFoundError:
+        return {}
+    panes = {}
+    for line in out.stdout.splitlines():
+        pid, target, wname = line.split("\t")
+        panes[int(pid)] = (target, wname)
+    return panes
+
+
+def where(pid, procs, panes):
+    """Where the session runs: a tmux target, VS Code, or a plain terminal."""
+    if ".vscode-server" in procs.get(pid, (0, 0, 0, ""))[3]:
+        return None, "VS Code"
+    p = pid
+    while p in procs and p > 1:
+        if p in panes:
+            target, wname = panes[p]
+            return target, f"{target} {wname}"
+        p = procs[p][0]
+    return None, "terminal"
+
+
+def transcript_info(session):
+    """(title, latest prompt) from the tail of the session transcript."""
+    folder = session["cwd"].replace("/", "-").replace(".", "-")
+    path = os.path.join(PROJECTS, folder, session["sessionId"] + ".jsonl")
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - TAIL_BYTES))
+            lines = f.read().decode(errors="replace").splitlines()
+    except OSError:
+        return "", ""
+    title = prompt = ""
+    for line in reversed(lines):
+        if '"custom-title"' not in line and '"last-prompt"' not in line:
+            continue
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if not title and e.get("type") == "custom-title":
+            title = e.get("customTitle") or ""
+        if not prompt and e.get("type") == "last-prompt":
+            prompt = e.get("lastPrompt") or ""
+        if title and prompt:
+            break
+    return title, " ".join(prompt.split())
+
+
+def age(ms):
+    s = int(time.time() - ms / 1000)
+    return f"{s // 3600}h{s % 3600 // 60:02d}m" if s >= 3600 else f"{s // 60}m"
+
+
+def mem_total_kb():
+    with open("/proc/meminfo") as f:
+        for line in f:
+            if line.startswith("MemTotal:"):
+                return int(line.split()[1])
+    raise SystemExit("cctop: MemTotal missing from /proc/meminfo")
+
+
+class Sampler:
+    def __init__(self):
+        self.prev = {}  # session pid -> (jiffies, time)
+        self.mem_total = mem_total_kb()
+
+    def rows(self):
+        sessions = list_sessions()
+        procs = read_procs()
+        children = {}
+        for pid, (ppid, *_rest) in procs.items():
+            children.setdefault(ppid, []).append(pid)
+        panes = tmux_panes()
+        now = time.monotonic()
+        rows = []
+        for s in sessions:
+            pid = s["pid"]
+            pids = [p for p in tree(pid, children) if p in procs]
+            jiffies = sum(procs[p][1] for p in pids)
+            rss = sum(procs[p][2] for p in pids)
+            last = self.prev.get(pid)
+            cpu = (jiffies - last[0]) / CLK_TCK / (now - last[1]) * 100 if last and now > last[1] else None
+            self.prev[pid] = (jiffies, now)
+            icon, label, order = state_of(s.get("status"))
+            target, place = where(pid, procs, panes)
+            title, prompt = transcript_info(s)
+            repo = os.path.relpath(s["cwd"], HOME) if s["cwd"].startswith(HOME) else s["cwd"]
+            rows.append(dict(order=order, icon=icon, label=label, name=s.get("name", "?"), repo=repo,
+                             title=title, cpu=cpu, mem_mb=rss / 1024, age=age(s["startedAt"]),
+                             place=place, target=target, prompt=prompt))
+        rows.sort(key=lambda r: (r["order"], r["repo"], r["name"]))
+        return rows
+
+
+COLS = [("", 3), ("STATE", 10), ("NAME", 18), ("REPO", 20), ("CPU%", 6), ("MEM", 7), ("AGE", 7), ("WHERE", 22)]
+
+
+def fmt(row, width):
+    cpu = "  …" if row["cpu"] is None else f"{row['cpu']:5.1f}"
+    cells = [row["icon"], row["label"], row["name"], row["repo"], cpu, f"{row['mem_mb']:5.0f}M", row["age"], row["place"]]
+    out = row["icon"] + " "  # emoji is two columns wide
+    for (_, w), cell in list(zip(COLS, cells))[1:]:
+        out += str(cell)[:w - 1].ljust(w)
+    desc = row["title"] + (": " if row["title"] and row["prompt"] else "") + row["prompt"]
+    used = 3 + sum(w for _, w in COLS[1:])
+    return out + desc[: max(0, width - used - 1)]
+
+
+def header(width):
+    return "".join(h.ljust(w) for h, w in COLS) + "TITLE / LATEST PROMPT"
+
+
+def summary(rows, mem_total):
+    counts = {}
+    for r in rows:
+        counts[r["label"]] = counts.get(r["label"], 0) + 1
+    cpu = sum(r["cpu"] or 0 for r in rows)
+    mem = sum(r["mem_mb"] for r in rows)
+    parts = ", ".join(f"{n} {k}" for k, n in counts.items())
+    return (f"cctop  {len(rows)} sessions ({parts})  CPU {cpu:.0f}%  "
+            f"MEM {mem / 1024:.1f} GB ({mem * 1024 / mem_total * 100:.0f}% of RAM)")
+
+
+def once():
+    s = Sampler()
+    s.rows()
+    time.sleep(1)
+    rows = s.rows()
+    width = 200
+    print(summary(rows, s.mem_total))
+    print(header(width))
+    for r in rows:
+        print(fmt(r, width))
+
+
+def ui(scr):
+    curses.curs_set(0)
+    curses.use_default_colors()
+    scr.timeout(int(REFRESH_SECONDS * 1000))
+    sampler, sel, rows, msg = Sampler(), 0, [], ""
+    while True:
+        rows = sampler.rows()
+        sel = min(sel, max(0, len(rows) - 1))
+        scr.erase()
+        h, w = scr.getmaxyx()
+        scr.addnstr(0, 0, summary(rows, sampler.mem_total), w - 1, curses.A_BOLD)
+        scr.addnstr(2, 0, header(w), w - 1, curses.A_REVERSE)
+        for i, r in enumerate(rows[: h - 5]):
+            scr.addnstr(3 + i, 0, fmt(r, w), w - 1, curses.A_STANDOUT if i == sel else 0)
+        scr.addnstr(h - 1, 0, msg or "↑/↓ select · Enter jump to tmux pane · q quit", w - 1, curses.A_DIM)
+        scr.refresh()
+        msg = ""
+        key = scr.getch()
+        if key in (ord("q"), 27):
+            return
+        if key in (curses.KEY_UP, ord("k")):
+            sel = max(0, sel - 1)
+        elif key in (curses.KEY_DOWN, ord("j")):
+            sel = min(len(rows) - 1, sel + 1)
+        elif key in (10, 13, curses.KEY_ENTER) and rows:
+            r = rows[sel]
+            if not r["target"]:
+                msg = f"{r['name']} isn't in a tmux pane ({r['place']})"
+            elif not os.environ.get("TMUX"):
+                msg = "Run cctop inside tmux to jump"
+            else:
+                subprocess.run(["tmux", "switch-client", "-t", r["target"]])
+                subprocess.run(["tmux", "select-pane", "-t", r["target"]])
+
+
+def main():
+    locale.setlocale(locale.LC_ALL, "")
+    if "--once" in sys.argv:
+        once()
+    else:
+        curses.wrapper(ui)
+
+
+if __name__ == "__main__":
+    main()
