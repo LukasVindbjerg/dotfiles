@@ -27,6 +27,7 @@ zstyle ':completion:*' menu no
 
 # --- Aliases ---
 alias ls='ls --color' c='clear'
+alias ll='ls -alF' la='ls -A' l='ls -CF' grep='grep --color=auto'
 command -v nvim >/dev/null && alias vim='nvim'
 alias refresh-mcp='bash $SETUP_DIR/scripts/enable-mcp.sh --force'
 

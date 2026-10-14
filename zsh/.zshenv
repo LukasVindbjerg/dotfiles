@@ -1,11 +1,12 @@
 # Skip Ubuntu's global compinit; .zshrc runs its own
 skip_global_compinit=1
 
-# User-installed binaries (claude, poetry, ...); zsh doesn't read ~/.profile
+# Org setup scripts only write to ~/.profile and ~/.bashrc. Read ~/.profile
+# (plain sh) so its PATH entries (~/.local/bin, ~/.npm-global/bin, ...) apply here too.
 typeset -U path
-path=(~/.local/bin $path)
-path=(~/.pyenv/bin ~/.npm-global/bin $path)
+[[ -r ~/.profile ]] && emulate sh -c '. ~/.profile'
+path=(~/.pyenv/bin $path)
 
-# Developer Setup (from enable-mcp.sh / setup-wsl.sh)
+# Mirrors the "Developer Setup configuration" block setup-wsl.sh writes to ~/.bashrc
 export SETUP_DIR="$HOME/code/setup"
 export BROWSER=wslview
