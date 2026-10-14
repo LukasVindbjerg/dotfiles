@@ -29,7 +29,6 @@ zstyle ':completion:*' menu no
 alias ls='ls --color' c='clear'
 alias ll='ls -alF' la='ls -A' l='ls -CF' grep='grep --color=auto'
 command -v nvim >/dev/null && alias vim='nvim'
-alias refresh-mcp='bash $SETUP_DIR/scripts/enable-mcp.sh --force'
 
 # --- Sublime (Windows install; converts WSL paths for it) ---
 subl() { local a=(); for f in "$@"; do a+=("$(wslpath -w "$f" 2>/dev/null || echo "$f")"); done; "/mnt/c/Program Files/Sublime Text/subl.exe" "${a[@]}"; }
@@ -38,8 +37,16 @@ subl() { local a=(); for f in "$@"; do a+=("$(wslpath -w "$f" 2>/dev/null || ech
 eval "$(fzf --zsh)"
 eval "$(zoxide init --cmd cd zsh)"
 eval "$(starship init zsh)"
-eval "$(pyenv init -)"
-eval "$(pyenv virtualenv-init -)"
+
+# --- Inherit what setup scripts add to ~/.bashrc (refresh-mcp, pyenv, PATH, ...) ---
+# Sources everything below Ubuntu's stock .bashrc, so setup-repo changes arrive here too.
+_skel=$(wc -l < /etc/skel/.bashrc)
+if cmp -s <(head -n $_skel ~/.bashrc) /etc/skel/.bashrc; then
+  source <(tail -n +$((_skel + 1)) ~/.bashrc)
+else
+  print -P "%F{yellow}~/.bashrc stock part changed; not importing setup config%f"
+fi
+unset _skel
 
 # --- Transient prompt: collapse finished prompts to just ❯ ---
 _full_prompt=$PROMPT
