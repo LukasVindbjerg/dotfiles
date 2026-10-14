@@ -28,6 +28,7 @@ zstyle ':completion:*' menu no
 # --- Aliases ---
 alias ls='ls --color' c='clear'
 command -v nvim >/dev/null && alias vim='nvim'
+alias refresh-mcp='bash $SETUP_DIR/scripts/enable-mcp.sh --force'
 
 # --- Sublime (Windows install; converts WSL paths for it) ---
 subl() { local a=(); for f in "$@"; do a+=("$(wslpath -w "$f" 2>/dev/null || echo "$f")"); done; "/mnt/c/Program Files/Sublime Text/subl.exe" "${a[@]}"; }
@@ -36,6 +37,8 @@ subl() { local a=(); for f in "$@"; do a+=("$(wslpath -w "$f" 2>/dev/null || ech
 eval "$(fzf --zsh)"
 eval "$(zoxide init --cmd cd zsh)"
 eval "$(starship init zsh)"
+eval "$(pyenv init -)"
+eval "$(pyenv virtualenv-init -)"
 
 # --- Transient prompt: collapse finished prompts to just ❯ ---
 _full_prompt=$PROMPT
