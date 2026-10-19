@@ -62,3 +62,10 @@ _restore_prompt() { PROMPT=$_full_prompt }
 autoload -Uz add-zle-hook-widget
 add-zle-hook-widget line-finish _collapse_prompt
 precmd_functions+=(_restore_prompt)
+
+# --- Windows Terminal: always work inside tmux ---
+# Attach to the running tmux, or start it (tmux-continuum then restores the last
+# saved workspace). Not in VS Code's terminal, Claude Code's shells, or nested tmux.
+if [[ -o interactive && -n $WT_SESSION && -z $TMUX && -z $CLAUDECODE && $TERM_PROGRAM != vscode ]] && command -v tmux >/dev/null; then
+  tmux attach 2>/dev/null || tmux new-session
+fi

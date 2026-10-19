@@ -1,0 +1,4 @@
+#!/bin/sh
+# Start nvim with the last session for this folder (open files, splits).
+# tmux-resurrect uses this to bring nvim panes back after a restart.
+exec nvim -c 'lua pcall(function() require("persistence").load() end)' "$@"

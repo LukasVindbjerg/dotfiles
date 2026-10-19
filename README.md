@@ -52,6 +52,9 @@ plugin pre-install (plugins then install on first start).
 - Edit files in `~/dotfiles`; the links mean changes apply straight away.
   Reload zsh with `exec zsh`, tmux with `Ctrl+Space` then `r`.
 - `Ctrl+h/j/k/l` moves between Neovim splits and tmux panes.
+- Windows Terminal opens straight into tmux. The workspace is saved every 15 minutes
+  (prefix + `Ctrl+s` saves now) and restored when tmux starts after a restart:
+  folders, layouts, nvim with its open files, and Claude Code panes in their own conversations.
 - Commit and push from `~/dotfiles` to share changes.
 
 ## Layout
