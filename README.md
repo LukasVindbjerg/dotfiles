@@ -23,7 +23,7 @@ Clone to `~/dotfiles` exactly; the Claude status line points there.
 | Step | Details |
 |---|---|
 | apt packages | zsh, git, curl, unzip, stow, tmux, ripgrep, build-essential, python3 |
-| Tools into `~/.local/bin` | Neovim, starship, fd, lazygit, tree-sitter: latest GitHub releases, each checked against GitHub's sha256 digest |
+| Tools into `~/.local/bin` | Neovim, starship, fd, lazygit, tree-sitter, btop: latest GitHub releases, each checked against GitHub's sha256 digest |
 | Claude Code | Official installer, if `claude` isn't installed yet |
 | Config links | `stow` links `zsh`, `starship`, `tmux`, `nvim` and `claude` into your home folder |
 | Plugins | zinit (zsh, plus fzf and zoxide), tpm (tmux), LazyVim plugins and syntax parsers |
@@ -63,5 +63,6 @@ plugin pre-install (plugins then install on first start).
 | `tmux/` | `~/.config/tmux/` |
 | `nvim/` | `~/.config/nvim/` |
 | `claude/` | `~/.claude/themes/claude-orange.json` |
+| `btop/` | `~/.config/btop/` (CPU + memory only; tmux prefix + `B` opens it) |
 | `bin/` | On `PATH` (via `.zshrc`): `claude-statusline` and helper scripts |
 | `scripts/`, `windows/` | Used by `install.sh` only |

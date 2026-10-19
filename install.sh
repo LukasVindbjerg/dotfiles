@@ -12,7 +12,7 @@ set -euo pipefail
 
 DOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="$HOME/.local/bin"
-PACKAGES=(zsh starship tmux nvim claude)
+PACKAGES=(zsh starship tmux nvim claude btop)
 SKIP_WINDOWS=0 SKIP_NVIM=0
 for a in "$@"; do
   case "$a" in
@@ -77,6 +77,8 @@ if have lazygit; then ok "lazygit"
 else f=$(gh_asset jesseduffield/lazygit 'lazygit_.*_linux_x86_64\.tar\.gz') && tar -xzf "$f" -C "$BIN" lazygit && done_ "lazygit"; fi
 if have tree-sitter; then ok "tree-sitter"
 else f=$(gh_asset tree-sitter/tree-sitter 'tree-sitter-linux-x64\.gz') && gunzip -c "$f" > "$BIN/tree-sitter" && chmod +x "$BIN/tree-sitter" && done_ "tree-sitter"; fi
+if have btop; then ok "btop"
+else f=$(gh_asset aristocratos/btop 'btop-x86_64-unknown-linux-musl\.tar\.gz') && tar -xzf "$f" -C "$TMP" && install -m755 "$(find "$TMP" -path '*bin/btop' -type f | head -1)" "$BIN/btop" && done_ "btop"; fi
 # fzf and zoxide are installed by zinit from .zshrc on the first zsh start.
 
 # ---------------------------------------------------------------------------
