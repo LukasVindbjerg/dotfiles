@@ -12,5 +12,5 @@ if read -r prev_total prev_idle 2>/dev/null < "$state" && [ "$total" -gt "$prev_
 fi
 echo "$total $idle" > "$state"
 
-mem=$(awk '/^MemTotal/ {t = $2} /^MemAvailable/ {a = $2} END {printf "%.1f/%.0fG", (t - a) / 1048576, t / 1048576}' /proc/meminfo)
+mem=$(awk '/^MemTotal/ {t = $2} /^MemAvailable/ {a = $2} END {printf "%.1f/%.0f GiB", (t - a) / 1048576, t / 1048576}' /proc/meminfo)
 printf 'CPU %d%%  RAM %s' "$cpu" "$mem"
