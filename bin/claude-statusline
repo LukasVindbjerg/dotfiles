@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+# Claude Code status line: rounded Catppuccin Mocha "pills" (like the tmux bar)
+# showing the session's directory and, inside a git repo, its branch.
+# Wired up via "statusLine" in ~/.claude/settings.json.
+import json, os, subprocess, sys
+
+CRUST = (17, 17, 27)
+LAVENDER = (180, 190, 254)
+MAUVE = (203, 166, 247)
+LEFT, RIGHT = "", ""   # rounded powerline caps (Nerd Font)
+FOLDER, BRANCH = "\U000f024b", ""
+
+
+def fg(c): return "\033[38;2;%d;%d;%dm" % c
+def bg(c): return "\033[48;2;%d;%d;%dm" % c
+
+
+def pill(color, text):
+    return f"{fg(color)}{LEFT}{bg(color)}{fg(CRUST)}\033[1m{text}\033[0m{fg(color)}{RIGHT}\033[0m"
+
+
+data = json.load(sys.stdin)
+cwd = (data.get("workspace") or {}).get("current_dir") or data.get("cwd") or os.getcwd()
+
+home = os.path.expanduser("~")
+shown = "~" + cwd[len(home):] if cwd == home or cwd.startswith(home + "/") else cwd
+parts = [pill(LAVENDER, f"{FOLDER} {shown}")]
+
+try:
+    branch = subprocess.run(["git", "-C", cwd, "branch", "--show-current"],
+                            capture_output=True, text=True, timeout=1).stdout.strip()
+except Exception:
+    branch = ""
+if branch:
+    parts.append(pill(MAUVE, f"{BRANCH} {branch}"))
+
+print(" ".join(parts))

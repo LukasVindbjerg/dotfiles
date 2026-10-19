@@ -1,0 +1,8 @@
+{
+  "name": "Claude Orange",
+  "base": "dark",
+  "overrides": {
+    "promptBorder": "#d77757",
+    "promptBorderShimmer": "#eb9f7f"
+  }
+}

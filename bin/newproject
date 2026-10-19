@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# newproject <repo-name>
+# Scaffold an Obsidian project for a repo in ~/code: the vault folder, meetings/,
+# the hub note from Templates/Project.md, and a vault pointer in the repo's CLAUDE.md.
+# Never overwrites anything.
+set -euo pipefail
+set -o noclobber
+
+vault="$HOME/vault"
+code="$HOME/code"
+
+die() { printf 'newproject: %s\n' "$*" >&2; exit 1; }
+
+[ $# -eq 1 ] || die "usage: newproject <repo-name>"
+name="$1"
+[[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || die "'$name' is not a plain repo name"
+
+repo="$code/$name"
+project="$vault/01 Projects/$name"
+hub="$project/$name.md"
+template="$vault/Templates/Project.md"
+
+[ -d "$repo/.git" ] || die "no git repo at ~/code/$name"
+[ -d "$vault/" ] || die "~/vault not found"
+[ -f "$template" ] || die "missing ~/vault/Templates/Project.md"
+[ ! -e "$project" ] || die "~/vault/01 Projects/$name already exists"
+[ ! -e "$vault/04 Archive/$name" ] || die "~/vault/04 Archive/$name already exists"
+
+# Vault side
+today="$(date +%F)"
+mkdir -p -- "$project/meetings"
+sed -e "s/{{title}}/$name/g" \
+    -e "s/{{date:YYYY-MM-DD}}/$today/g" \
+    -e "s/{{date}}/$today/g" \
+    -- "$template" > "$hub"
+echo "Created ~/vault/01 Projects/$name/$name.md and meetings/"
+
+# Repo side: append the pointer to CLAUDE.md, after asking
+claude_md="$repo/CLAUDE.md"
+pointer="~/vault/01 Projects/$name/$name.md"
+if [ -f "$claude_md" ] && grep -qF -- "$pointer" "$claude_md"; then
+  echo "~/code/$name/CLAUDE.md already points to the vault; left unchanged"
+  exit 0
+fi
+
+block="## Notes (Obsidian vault)
+Project hub, daily log and meetings for this repo: \`$pointer\`.
+Vault conventions and the \"log this\" workflow are in \`~/.claude/VAULT.md\`."
+
+printf '\nAbout to append to ~/code/%s/CLAUDE.md%s:\n\n%s\n\n' \
+  "$name" "$([ -f "$claude_md" ] || echo ' (new file)')" "$block"
+read -r -p "Append? [y/N] " answer
+case "$answer" in
+  [yY]*) ;;
+  *) echo "Skipped CLAUDE.md"; exit 0 ;;
+esac
+
+{
+  # Separate from existing content with one blank line
+  if [ -s "$claude_md" ]; then
+    [ -z "$(tail -c 1 -- "$claude_md")" ] || printf '\n'
+    printf '\n'
+  fi
+  printf '%s\n' "$block"
+} >> "$claude_md"
+echo "Updated ~/code/$name/CLAUDE.md"
