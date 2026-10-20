@@ -51,7 +51,8 @@ gh_asset() {
 import json, re, sys
 for a in json.load(sys.stdin)["assets"]:
     if re.fullmatch(sys.argv[1], a["name"]):
-        print(a["browser_download_url"], (a.get("digest") or "").removeprefix("sha256:")); break
+        d = a.get("digest") or ""  # no str.removeprefix: Ubuntu 20.04 has Python 3.8
+        print(a["browser_download_url"], d[len("sha256:"):] if d.startswith("sha256:") else d); break
 ' "$pattern")
   read -r url sum <<<"$info"
   [ -n "${url:-}" ] && [ -n "${sum:-}" ] || { echo "no verifiable asset for $repo" >&2; return 1; }
@@ -67,6 +68,11 @@ if nvim_ok; then ok "neovim $(nvim --version | head -1 | cut -d' ' -f2)"
 else
   f=$(gh_asset neovim/neovim 'nvim-linux-x86_64\.tar\.gz')
   rm -rf "$HOME/.local/opt/nvim-linux-x86_64" && tar -xzf "$f" -C "$HOME/.local/opt"
+  # The official build needs a newer glibc than e.g. Ubuntu 20.04 has; neovim-releases is built for older ones
+  if ! "$HOME/.local/opt/nvim-linux-x86_64/bin/nvim" --version >/dev/null 2>&1; then
+    f=$(gh_asset neovim/neovim-releases 'nvim-linux-x86_64\.tar\.gz')
+    rm -rf "$HOME/.local/opt/nvim-linux-x86_64" && tar -xzf "$f" -C "$HOME/.local/opt"
+  fi
   ln -sf "$HOME/.local/opt/nvim-linux-x86_64/bin/nvim" "$BIN/nvim" && done_ "neovim"
 fi
 if have starship; then ok "starship"
@@ -136,7 +142,8 @@ if [ "$SKIP_WINDOWS" = 0 ]; then
   step "Windows side: font, clipboard helper, Windows Terminal and VS Code"
   winpath() { wslpath "$(cmd.exe /c "echo %$1%" 2>/dev/null | tr -d '\r')"; }
   winget.exe install -e --id DEVCOM.JetBrainsMonoNerdFont --accept-package-agreements --accept-source-agreements >/dev/null 2>&1 || true
-  if ls "$(winpath LOCALAPPDATA)/Microsoft/Windows/Fonts/" /mnt/c/Windows/Fonts/ 2>/dev/null | grep -qi 'JetBrainsMonoNerdFont-'; then
+  # "|| true": with pipefail, ls failing on a missing per-user Fonts folder would hide a match in the other one
+  if { ls "$(winpath LOCALAPPDATA)/Microsoft/Windows/Fonts/" /mnt/c/Windows/Fonts/ 2>/dev/null || true; } | grep -qi 'JetBrainsMonoNerdFont-'; then
     ok "JetBrainsMono Nerd Font"
   else warn "JetBrainsMono Nerd Font not found; install it from nerdfonts.com"; fi
   winget.exe install -e --id equalsraf.win32yank --accept-package-agreements --accept-source-agreements >/dev/null 2>&1 || true
