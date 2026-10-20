@@ -3,7 +3,7 @@
 
 Windows Terminal: add the Catppuccin Mocha scheme; on this distro's profile set
 the Nerd Font, the scheme and the Linux home as start folder; make it the default
-profile; move paste from Ctrl+V to Ctrl+Shift+V so Vim's visual-block mode works.
+profile.
 VS Code: use the Nerd Font in the integrated terminal.
 
 Usage: merge-windows-settings.py <scheme.json> <localappdata> <appdata>
@@ -61,11 +61,6 @@ for path in wt_paths:
         p["colorScheme"] = scheme["name"]
         p["startingDirectory"] = f"\\\\wsl.localhost\\{distro}\\home\\{getpass.getuser()}"
         data["defaultProfile"] = p["guid"]
-
-    for key in ("keybindings", "actions"):
-        for b in data.get(key, []):
-            if b.get("keys") == "ctrl+v" and "Paste" in (b.get("id") or str(b.get("command"))):
-                b["keys"] = "ctrl+shift+v"
     save(path, data, before)
 
 # --- VS Code user settings ---

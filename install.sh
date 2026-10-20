@@ -111,7 +111,7 @@ zsh -i -c exit >/dev/null 2>&1 && ok "zinit plugins, fzf and zoxide installed" |
 TPM="$HOME/.config/tmux/plugins/tpm"
 [ -d "$TPM" ] || git clone -q --depth 1 https://github.com/tmux-plugins/tpm "$TPM"
 tmux -L dotfiles-install new-session -d 2>/dev/null && tmux -L dotfiles-install run-shell "$TPM/bin/install_plugins" >/dev/null 2>&1 \
-  && ok "tmux plugins installed" || warn "tmux plugins: press Ctrl+Space then I inside tmux to install"
+  && ok "tmux plugins installed" || warn "tmux plugins: press the prefix (Ctrl+b) then I inside tmux to install"
 tmux -L dotfiles-install kill-server 2>/dev/null || true
 
 # ---------------------------------------------------------------------------

@@ -29,7 +29,7 @@ Clone to `~/dotfiles` exactly; the Claude status line points there.
 | Plugins | zinit (zsh, plus fzf and zoxide), tpm (tmux), LazyVim plugins and syntax parsers |
 | Claude settings | Sets only `theme` and `statusLine` in `~/.claude/settings.json`; your permissions and MCP servers stay |
 | Default shell | zsh |
-| Windows side | JetBrainsMono Nerd Font and win32yank via winget; Windows Terminal gets the Catppuccin Mocha scheme, the font, your Linux home as start folder, and paste on `Ctrl+Shift+V`; VS Code's terminal gets the font |
+| Windows side | JetBrainsMono Nerd Font and win32yank via winget; Windows Terminal gets the Catppuccin Mocha scheme, the font, and your Linux home as start folder; VS Code's terminal gets the font |
 
 It is safe to rerun. Finished steps are skipped. Any file it would replace is
 moved to `~/.dotfiles-backup-<time>/` first, and every settings file it edits is
@@ -50,7 +50,7 @@ plugin pre-install (plugins then install on first start).
 ## Day to day
 
 - Edit files in `~/dotfiles`; the links mean changes apply straight away.
-  Reload zsh with `exec zsh`, tmux with `Ctrl+Space` then `r`.
+  Reload zsh with `exec zsh`, tmux with the prefix (`Ctrl+b`) then `r`.
 - `Ctrl+h/j/k/l` moves between Neovim splits and tmux panes.
 - Windows Terminal opens straight into tmux. The workspace is saved every 15 minutes
   (prefix + `Ctrl+s` saves now) and restored when tmux starts after a restart:
