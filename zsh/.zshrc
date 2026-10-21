@@ -29,6 +29,8 @@ zstyle ':completion:*' menu no
 alias ls='ls --color' c='clear'
 alias ll='ls -alF' la='ls -A' l='ls -CF' grep='grep --color=auto'
 command -v nvim >/dev/null && alias vim='nvim'
+# Quick chats with Claude live in ~/chat, so they stay out of each project's 'claude -r' list
+alias chat='(mkdir -p ~/chat && cd ~/chat && claude)'
 
 # --- Sublime (Windows install; converts WSL paths for it) ---
 subl() { local a=(); for f in "$@"; do a+=("$(wslpath -w "$f" 2>/dev/null || echo "$f")"); done; "/mnt/c/Program Files/Sublime Text/subl.exe" "${a[@]}"; }
