@@ -35,3 +35,5 @@ if branch:
     parts.append(pill(MAUVE, f"{BRANCH} {branch}"))
 
 print(" ".join(parts))
+# Cheat sheet for keys that are easy to forget (dim second line)
+print("\033[2mEnter newline · Shift/Ctrl+Enter send · Esc stop · Esc Esc rewind/undo\033[0m")

@@ -17,6 +17,11 @@ setopt sharehistory hist_ignore_all_dups hist_ignore_space
 
 # --- PATH ---
 path=("$HOME/dotfiles/bin" $path)
+# bash gets these from /etc/profile and ~/.profile, which zsh never reads (/snap/bin = gh)
+for _d in /snap/bin "$HOME/.local/bin" "$HOME/bin"; do
+  [[ -d $_d && ${path[(Ie)$_d]} -eq 0 ]] && path+=("$_d")
+done
+unset _d
 
 # --- Keys & completion ---
 bindkey -e
