@@ -4,12 +4,12 @@
 # Also saves the account's 5-hour and 7-day usage limits to ~/.cache/claude-limits.json,
 # which the tmux bar reads (~/.config/tmux/scripts/sysinfo.sh).
 # Wired up via "statusLine" in ~/.claude/settings.json.
-import json, os, subprocess, sys, tempfile, time
+import json, os, re, subprocess, sys, tempfile, time
 
 CRUST = (17, 17, 27)
 LAVENDER = (180, 190, 254)
 MAUVE = (203, 166, 247)
-GREEN, YELLOW, RED = (166, 227, 161), (249, 226, 175), (243, 139, 168)
+OVERLAY, YELLOW, RED = (127, 132, 156), (249, 226, 175), (243, 139, 168)
 LIMITS = os.path.expanduser("~/.cache/claude-limits.json")
 LEFT, RIGHT = "", ""   # rounded powerline caps (Nerd Font)
 FOLDER, BRANCH = "\U000f024b", ""
@@ -38,10 +38,12 @@ except Exception:
 if branch:
     parts.append(pill(MAUVE, f"{BRANCH} {branch}"))
 
+# Context use as quiet text at the right edge: grey until it gets high, then yellow (50%+) or red (80%+).
 ctx = (data.get("context_window") or {}).get("used_percentage")
+right = ""
 if ctx is not None:
-    color = GREEN if ctx < 50 else YELLOW if ctx < 80 else RED
-    parts.append(pill(color, f"ctx {ctx:.0f}%"))
+    color = OVERLAY if ctx < 50 else YELLOW if ctx < 80 else RED
+    right = f"{fg(color)}{ctx:.0f}% context\033[0m"
 
 # Usage limits come with every API response for claude.ai subscribers; keep the latest for tmux.
 limits = {k: v for k, v in (data.get("rate_limits") or {}).items() if k in ("five_hour", "seven_day")}
@@ -54,4 +56,8 @@ if limits:
     except OSError:
         pass
 
-print(" ".join(parts))
+left = " ".join(parts)
+# Claude Code sets COLUMNS to the terminal width; pad so the context text sits at the right edge.
+visible = lambda t: len(re.sub(r"\033\[[0-9;]*m", "", t))
+gap = int(os.environ.get("COLUMNS", 0) or 0) - visible(left) - visible(right) - 4
+print(left + " " * max(gap, 2) + right if right else left)
