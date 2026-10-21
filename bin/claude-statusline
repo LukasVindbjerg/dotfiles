@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 # Claude Code status line: rounded Catppuccin Mocha "pills" (like the tmux bar)
-# showing the session's directory and, inside a git repo, its branch.
+# showing the session's directory, its git branch and how full its context window is.
+# Also saves the account's 5-hour and 7-day usage limits to ~/.cache/claude-limits.json,
+# which the tmux bar reads (~/.config/tmux/scripts/sysinfo.sh).
 # Wired up via "statusLine" in ~/.claude/settings.json.
-import json, os, subprocess, sys
+import json, os, subprocess, sys, tempfile, time
 
 CRUST = (17, 17, 27)
 LAVENDER = (180, 190, 254)
 MAUVE = (203, 166, 247)
+GREEN, YELLOW, RED = (166, 227, 161), (249, 226, 175), (243, 139, 168)
+LIMITS = os.path.expanduser("~/.cache/claude-limits.json")
 LEFT, RIGHT = "", ""   # rounded powerline caps (Nerd Font)
 FOLDER, BRANCH = "\U000f024b", ""
 
@@ -33,5 +37,21 @@ except Exception:
     branch = ""
 if branch:
     parts.append(pill(MAUVE, f"{BRANCH} {branch}"))
+
+ctx = (data.get("context_window") or {}).get("used_percentage")
+if ctx is not None:
+    color = GREEN if ctx < 50 else YELLOW if ctx < 80 else RED
+    parts.append(pill(color, f"ctx {ctx:.0f}%"))
+
+# Usage limits come with every API response for claude.ai subscribers; keep the latest for tmux.
+limits = {k: v for k, v in (data.get("rate_limits") or {}).items() if k in ("five_hour", "seven_day")}
+if limits:
+    try:
+        os.makedirs(os.path.dirname(LIMITS), exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", dir=os.path.dirname(LIMITS), delete=False) as f:
+            json.dump({"saved_at": time.time(), **limits}, f)
+        os.replace(f.name, LIMITS)
+    except OSError:
+        pass
 
 print(" ".join(parts))
