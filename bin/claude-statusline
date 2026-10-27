@@ -26,6 +26,34 @@ def pill(color, text):
 data = json.load(sys.stdin)
 cwd = (data.get("workspace") or {}).get("current_dir") or data.get("cwd") or os.getcwd()
 
+
+def record_pane_session():
+    """Note which session this tmux pane shows, for tmux prefix + i (copy-claude-session.sh).
+    Only when this process really runs inside $TMUX_PANE: background sessions are drawn by
+    Claude's background service, which may have inherited another pane's $TMUX_PANE."""
+    pane, sid = os.environ.get("TMUX_PANE"), data.get("session_id")
+    if not pane or not sid:
+        return
+    try:
+        pane_pid = subprocess.run(["tmux", "display", "-p", "-t", pane, "#{pane_pid}"],
+                                  capture_output=True, text=True, timeout=1).stdout.strip()
+        pid = str(os.getpid())
+        while pid not in ("", "0", "1", pane_pid):
+            with open(f"/proc/{pid}/stat") as f:
+                pid = f.read().rsplit(")", 1)[1].split()[1]
+        if pid != pane_pid:
+            return
+        d = os.path.expanduser("~/.cache/claude-panes")
+        os.makedirs(d, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", dir=d, delete=False) as f:
+            json.dump({"session_id": sid, "name": data.get("session_name") or "", "cwd": cwd}, f)
+        os.replace(f.name, os.path.join(d, pane.lstrip("%") + ".json"))
+    except (OSError, subprocess.SubprocessError, IndexError):
+        pass
+
+
+record_pane_session()
+
 home = os.path.expanduser("~")
 shown = "~" + cwd[len(home):] if cwd == home or cwd.startswith(home + "/") else cwd
 parts = [pill(LAVENDER, f"{FOLDER} {shown}")]
